@@ -100,21 +100,26 @@ export function App() {
     setNotice(`${items.length}件をCSVから追加しました。`);
   }
 
-  async function sendToSuno(type, payload = {}) {
+  async function sendToBackground(type, payload = {}, requireSunoTab = true) {
     if (!isExtension) {
       setNotice("拡張機能として読み込むとSunoへ送信できます。");
       return false;
     }
-    const tab = await getActiveTab();
-    if (!tab?.id || !isSunoUrl(tab.url)) {
-      setNotice("SunoのCreate画面を開いてから実行してください。");
-      return false;
+    let tabId = runner.tabId ?? null;
+    if (requireSunoTab) {
+      const tab = await getActiveTab();
+      if (!tab?.id || !isSunoUrl(tab.url)) {
+        setNotice("SunoのCreate画面を開いてから実行してください。");
+        return false;
+      }
+      tabId = tab.id;
     }
     try {
-      await chrome.tabs.sendMessage(tab.id, { type, tabId: tab.id, ...payload });
+      const response = await chrome.runtime.sendMessage({ type, tabId, ...payload });
+      if (!response?.ok) throw new Error(response?.error || "バックグラウンド処理へ接続できません。");
       return true;
-    } catch {
-      setNotice("Suno画面と接続できません。画面を再読み込みしてください。");
+    } catch (error) {
+      setNotice(error.message || "バックグラウンド処理へ接続できません。拡張機能を更新してください。");
       return false;
     }
   }
@@ -125,12 +130,12 @@ export function App() {
       return;
     }
     await setLocal({ sunoSettings: settings });
-    const sent = await sendToSuno("START_QUEUE", { settings });
-    if (sent) setNotice("Sunoで順番に生成を開始しました。");
+    const sent = await sendToBackground("START_QUEUE", { settings });
+    if (sent) setNotice("バックグラウンド生成を開始しました。ポップアップを閉じても続行します。");
   }
 
   async function stop() {
-    const sent = await sendToSuno("STOP_QUEUE");
+    const sent = await sendToBackground("STOP_QUEUE", {}, false);
     if (sent) setNotice("停止しました。再開すると続きから処理します。");
   }
 
@@ -281,7 +286,7 @@ export function App() {
 
       <div className="status-bar" role="status">
         <span className={runner.running ? "status-dot active" : "status-dot"} />
-        <span>{notice || runner.message || (runner.running ? "生成処理を実行中です。" : "SunoのCreate画面で開始してください。")}</span>
+        <span>{notice || runner.message || (runner.running ? "バックグラウンドで生成中です。" : "SunoのCreate画面で開始してください。")}</span>
       </div>
 
       <footer className="action-footer">

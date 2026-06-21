@@ -2,9 +2,6 @@
   if (window.__sunoPromptRunnerLoaded) return;
   window.__sunoPromptRunnerLoaded = true;
 
-  let processing = false;
-  let stopRequested = false;
-  let currentTabId = null;
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   function isVisible(element) {
@@ -66,98 +63,23 @@
       ?? null;
   }
 
-  async function updateState(queue, runner) {
-    await chrome.storage.local.set({ sunoQueue: queue, sunoRunner: runner });
-  }
+  async function processItem(item) {
+    const field = findPromptField();
+    if (!field) throw new Error("Lyrics入力欄が見つかりません。Customモードを開いてください。");
+    setFieldValue(field, item.prompt);
+    await sleep(700);
 
-  async function setMessage(message, patch = {}) {
-    const { sunoRunner = {} } = await chrome.storage.local.get("sunoRunner");
-    await chrome.storage.local.set({ sunoRunner: { ...sunoRunner, ...patch, message } });
-  }
-
-  async function runQueue() {
-    if (processing) return;
-    processing = true;
-    stopRequested = false;
-
-    try {
-      while (!stopRequested) {
-        const stored = await chrome.storage.local.get(["sunoQueue", "sunoRunner", "sunoSettings"]);
-        const queue = stored.sunoQueue ?? [];
-        const runner = stored.sunoRunner ?? {};
-        const settings = stored.sunoSettings ?? { intervalSeconds: 20 };
-
-        if (!runner.running || runner.paused || runner.tabId !== currentTabId) break;
-        const index = queue.findIndex((item) => item.status === "waiting" || item.status === "failed");
-        if (index === -1) {
-          await updateState(queue, { ...runner, running: false, paused: false, currentId: null, message: "すべての曲を処理しました。" });
-          break;
-        }
-
-        const item = queue[index];
-        queue[index] = { ...item, status: "processing", error: "" };
-        await updateState(queue, { ...runner, running: true, paused: false, currentId: item.id, message: `${index + 1}曲目「${item.title}」を入力しています。` });
-
-        try {
-          const field = findPromptField();
-          if (!field) throw new Error("Lyrics入力欄が見つかりません。Customモードを開いてください。");
-          setFieldValue(field, item.prompt);
-          await sleep(700);
-          const createButton = findCreateButton();
-          if (!createButton) throw new Error("Createボタンが見つかりません。");
-          createButton.click();
-
-          const refreshed = await chrome.storage.local.get(["sunoQueue", "sunoRunner"]);
-          const nextQueue = refreshed.sunoQueue ?? queue;
-          const completedIndex = nextQueue.findIndex((candidate) => candidate.id === item.id);
-          if (completedIndex >= 0) nextQueue[completedIndex] = { ...nextQueue[completedIndex], status: "complete", error: "" };
-          await updateState(nextQueue, { ...(refreshed.sunoRunner ?? runner), running: true, currentId: null, message: `「${item.title}」をSunoへ送信しました。` });
-        } catch (error) {
-          const refreshed = await chrome.storage.local.get(["sunoQueue", "sunoRunner"]);
-          const nextQueue = refreshed.sunoQueue ?? queue;
-          const failedIndex = nextQueue.findIndex((candidate) => candidate.id === item.id);
-          if (failedIndex >= 0) nextQueue[failedIndex] = { ...nextQueue[failedIndex], status: "failed", error: error.message };
-          await updateState(nextQueue, { ...(refreshed.sunoRunner ?? runner), running: false, paused: true, currentId: null, message: error.message });
-          break;
-        }
-
-        const waitMilliseconds = Math.max(10, Number(settings.intervalSeconds) || 20) * 1000;
-        for (let elapsed = 0; elapsed < waitMilliseconds && !stopRequested; elapsed += 500) {
-          await sleep(500);
-          const { sunoRunner } = await chrome.storage.local.get("sunoRunner");
-          if (!sunoRunner?.running || sunoRunner.paused) stopRequested = true;
-        }
-      }
-    } finally {
-      processing = false;
-    }
+    const createButton = findCreateButton();
+    if (!createButton) throw new Error("Createボタンが見つかりません。");
+    createButton.click();
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === "START_QUEUE") {
-      currentTabId = message.tabId;
-      chrome.storage.local.get(["sunoRunner", "sunoSettings"]).then(async (stored) => {
-        await chrome.storage.local.set({
-          sunoSettings: message.settings ?? stored.sunoSettings ?? { intervalSeconds: 20 },
-          sunoRunner: { ...(stored.sunoRunner ?? {}), running: true, paused: false, tabId: currentTabId, message: "生成を開始します。" },
-        });
-        runQueue();
-      });
-      sendResponse({ ok: true });
-      return true;
-    }
-    if (message.type === "STOP_QUEUE") {
-      stopRequested = true;
-      setMessage("停止しました。", { running: false, paused: true, currentId: null });
-      sendResponse({ ok: true });
-      return true;
-    }
-    return false;
-  });
+    if (message.type !== "PROCESS_ITEM") return false;
 
-  chrome.runtime.sendMessage({ type: "GET_SENDER_TAB_ID" }, async (response) => {
-    currentTabId = response?.tabId ?? null;
-    const { sunoRunner } = await chrome.storage.local.get("sunoRunner");
-    if (sunoRunner?.running && sunoRunner.tabId === currentTabId) runQueue();
+    processItem(message.item)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
   });
 })();
