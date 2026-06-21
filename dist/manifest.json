@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Sunoプロンプト生成",
+  "version": "1.0.2",
+  "description": "複数のLyricsをSunoへ順番に入力して生成します。",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://suno.com/*", "https://app.suno.ai/*"],
+  "action": {
+    "default_title": "Sunoプロンプト生成",
+    "default_popup": "index.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://suno.com/*", "https://app.suno.ai/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

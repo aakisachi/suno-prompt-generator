@@ -1,0 +1,6 @@
+.DS_Store
+.npm-cache/
+node_modules/
+AGENTS.md
+design-qa.md
+*.log
