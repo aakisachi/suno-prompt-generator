@@ -4,6 +4,24 @@
 
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+  const FIELDS = {
+    lyrics: {
+      include: ["lyrics", "lyric", "歌詞", "リリック"],
+      exclude: ["style", "スタイル", "description", "describe", "title", "タイトル", "exclude"],
+      preferLarge: true,
+    },
+    style: {
+      include: ["style", "styles", "スタイル"],
+      exclude: ["exclude", "除外", "lyrics", "lyric", "歌詞", "リリック", "title", "タイトル"],
+      preferLarge: false,
+    },
+    title: {
+      include: ["title", "タイトル"],
+      exclude: ["style", "スタイル", "lyrics", "歌詞", "リリック", "playlist", "exclude"],
+      preferLarge: false,
+    },
+  };
+
   function isVisible(element) {
     if (!element) return false;
     const style = window.getComputedStyle(element);
@@ -16,25 +34,37 @@
       .filter(Boolean).join(" ").toLowerCase();
   }
 
-  function scorePromptField(element) {
+  function scoreField(element, { include, exclude, preferLarge }) {
     const text = elementText(element);
-    let score = element.tagName === "TEXTAREA" ? 5 : 1;
-    ["lyrics", "lyric", "歌詞", "リリック"].forEach((keyword) => {
-      if (text.includes(keyword)) score += 20;
+    let score = 0;
+    let matched = false;
+    include.forEach((keyword) => {
+      if (text.includes(keyword)) {
+        score += 20;
+        matched = true;
+      }
     });
-    ["style", "styles", "スタイル", "description", "describe"].forEach((keyword) => {
-      if (text.includes(keyword)) score -= 12;
+    exclude.forEach((keyword) => {
+      if (text.includes(keyword)) score -= 30;
     });
-    const rect = element.getBoundingClientRect();
-    if (rect.height >= 120) score += 8;
-    else if (rect.height >= 70) score += 3;
-    return score;
+    if (preferLarge) {
+      if (element.tagName === "TEXTAREA") score += 5;
+      const rect = element.getBoundingClientRect();
+      if (rect.height >= 120) score += 8;
+      else if (rect.height >= 70) score += 3;
+    }
+    return { score, matched };
   }
 
-  function findPromptField() {
-    return [...document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"]')]
+  function findField(config, { requireKeyword = true } = {}) {
+    const ranked = [...document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"], input:not([type])')]
       .filter((element) => isVisible(element) && !element.disabled)
-      .sort((a, b) => scorePromptField(b) - scorePromptField(a))[0] ?? null;
+      .map((element) => ({ element, ...scoreField(element, config) }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (!best) return null;
+    if (requireKeyword && (!best.matched || best.score <= 0)) return null;
+    return best.element;
   }
 
   function setFieldValue(element, value) {
@@ -63,10 +93,25 @@
       ?? null;
   }
 
+  // 空文字のフィールドは触らない＝Suno画面に入力済みの値を温存する
   async function processItem(item) {
-    const field = findPromptField();
-    if (!field) throw new Error("Lyrics入力欄が見つかりません。Customモードを開いてください。");
-    setFieldValue(field, item.prompt);
+    if (item.title) {
+      const titleField = findField(FIELDS.title);
+      if (!titleField) throw new Error("タイトル入力欄が見つかりません。「タイトルを入力する」をオフにするか、Customモードを確認してください。");
+      setFieldValue(titleField, item.title);
+      await sleep(250);
+    }
+
+    if (item.style) {
+      const styleField = findField(FIELDS.style);
+      if (!styleField) throw new Error("スタイル入力欄が見つかりません。Customモードを開いてください。");
+      setFieldValue(styleField, item.style);
+      await sleep(250);
+    }
+
+    const lyricsField = findField(FIELDS.lyrics, { requireKeyword: false });
+    if (!lyricsField) throw new Error("Lyrics入力欄が見つかりません。Customモードを開いてください。");
+    setFieldValue(lyricsField, item.lyrics ?? item.prompt ?? "");
     await sleep(700);
 
     const createButton = findCreateButton();

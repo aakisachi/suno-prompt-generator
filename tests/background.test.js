@@ -16,13 +16,31 @@ test("バックグラウンド実行に必要な権限だけを使用する", as
 test("バックグラウンドがアラームで次の曲を処理する", async () => {
   const source = await readFile(backgroundPath, "utf8");
   assert.match(source, /chrome\.alarms\.onAlarm\.addListener/);
-  assert.match(source, /chrome\.tabs\.sendMessage\(tabId, \{ type: "PROCESS_ITEM", item \}\)/);
+  assert.match(source, /chrome\.tabs\.sendMessage\(tabId, \{ type: "PROCESS_ITEM", item: payload \}\)/);
+});
+
+test("バックグラウンドがトグル設定から送信内容を組み立てる", async () => {
+  const source = await readFile(backgroundPath, "utf8");
+  assert.match(source, /settings\.useTitle \? item\.title/);
+  assert.match(source, /settings\.styleMode === "perSong" \? item\.style/);
+  assert.match(source, /settings\.commonStyle/);
 });
 
 test("Suno画面側は1曲単位の処理だけを担当する", async () => {
   const source = await readFile(contentPath, "utf8");
   assert.match(source, /message\.type !== "PROCESS_ITEM"/);
   assert.doesNotMatch(source, /while \(!stopRequested\)/);
+});
+
+test("Suno画面側は空欄のタイトル・スタイルを入力しない", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /if \(item\.title\)/);
+  assert.match(source, /if \(item\.style\)/);
+});
+
+test("スタイル検出はExclude Stylesを減点する", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /"exclude"/);
 });
 
 test("ポップアップはバックグラウンドへ開始命令を送る", async () => {

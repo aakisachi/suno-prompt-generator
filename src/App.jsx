@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { parsePromptText, summarizeQueue } from "./parser.js";
+import { parsePromptText, migrateItem, summarizeQueue } from "./parser.js";
 
 const STATUS_LABELS = {
   waiting: "待機中",
@@ -7,6 +7,8 @@ const STATUS_LABELS = {
   complete: "完了",
   failed: "失敗",
 };
+
+const DEFAULT_SETTINGS = { intervalSeconds: 20, styleMode: "common", useTitle: false, commonStyle: "" };
 
 const isExtension = typeof chrome !== "undefined" && Boolean(chrome.storage?.local);
 
@@ -37,25 +39,40 @@ function isSunoUrl(url = "") {
   return /^https:\/\/(www\.)?(suno\.com|app\.suno\.ai)\//.test(url);
 }
 
+function Switch({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={checked ? "switch on" : "switch"}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="switch-knob" />
+    </button>
+  );
+}
+
 export function App() {
   const [queue, setQueue] = useState([]);
   const [runner, setRunner] = useState({ running: false, paused: false, currentId: null, message: "" });
   const [text, setText] = useState("");
-  const [settings, setSettings] = useState({ intervalSeconds: 20 });
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const [notice, setNotice] = useState("");
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     getLocal(["sunoQueue", "sunoRunner", "sunoSettings"]).then((stored) => {
-      setQueue(stored.sunoQueue ?? []);
+      setQueue((stored.sunoQueue ?? []).map(migrateItem));
       setRunner(stored.sunoRunner ?? { running: false, paused: false, currentId: null, message: "" });
-      setSettings(stored.sunoSettings ?? { intervalSeconds: 20 });
+      setSettings({ ...DEFAULT_SETTINGS, ...(stored.sunoSettings ?? {}) });
     });
 
     const update = () => {
       getLocal(["sunoQueue", "sunoRunner"]).then((stored) => {
-        if (stored.sunoQueue) setQueue(stored.sunoQueue);
+        if (stored.sunoQueue) setQueue(stored.sunoQueue.map(migrateItem));
         if (stored.sunoRunner) setRunner(stored.sunoRunner);
       });
     };
@@ -71,6 +88,22 @@ export function App() {
   const summary = useMemo(() => summarizeQueue(queue), [queue]);
   const finished = summary.complete + summary.failed;
   const progress = queue.length ? Math.round((finished / queue.length) * 100) : 0;
+  const perSong = settings.styleMode === "perSong";
+
+  const formatHint = useMemo(() => {
+    const columns = ["リリック"];
+    if (perSong) columns.unshift("スタイル");
+    if (settings.useTitle) columns.unshift("タイトル");
+    return `1行に1曲（${columns.join("，")}）。複数行のリリックは「---」で曲を区切り、「タイトル:」「スタイル:」「リリック:」のラベルで指定できます。`;
+  }, [perSong, settings.useTitle]);
+
+  const placeholder = useMemo(() => {
+    const lines = [];
+    if (settings.useTitle) lines.push("タイトル: 朝のネオン");
+    if (perSong) lines.push("スタイル: 80s city pop, warm bass");
+    lines.push("リリック:", "[Verse]", "眠らない街を歩く", "---", "（次の曲）");
+    return lines.join("\n");
+  }, [perSong, settings.useTitle]);
 
   async function persistQueue(nextQueue) {
     setQueue(nextQueue);
@@ -78,26 +111,26 @@ export function App() {
   }
 
   async function addPrompts(rawText = text) {
-    const items = parsePromptText(rawText);
+    const items = parsePromptText(rawText, { styleMode: settings.styleMode, useTitle: settings.useTitle });
     if (!items.length) {
-      setNotice("追加できるプロンプトがありません。");
+      setNotice("追加できる曲がありません。");
       return;
     }
     await persistQueue([...queue, ...items]);
     setText("");
-    setNotice(`${items.length}件をキューに追加しました。`);
+    setNotice(`${items.length}曲をキューに追加しました。`);
   }
 
   async function handleFile(file) {
     if (!file) return;
     const content = await file.text();
-    const items = parsePromptText(content);
+    const items = parsePromptText(content, { styleMode: settings.styleMode, useTitle: settings.useTitle });
     if (!items.length) {
-      setNotice("CSVからプロンプトを読み取れませんでした。");
+      setNotice("CSVから曲を読み取れませんでした。");
       return;
     }
     await persistQueue([...queue, ...items]);
-    setNotice(`${items.length}件をCSVから追加しました。`);
+    setNotice(`${items.length}曲をCSVから追加しました。`);
   }
 
   async function sendToBackground(type, payload = {}, requireSunoTab = true) {
@@ -158,7 +191,7 @@ export function App() {
       setNotice("生成を停止してからキューを削除してください。");
       return;
     }
-    if (!window.confirm(`キューの${queue.length}件をすべて削除しますか？`)) return;
+    if (!window.confirm(`キューの${queue.length}曲をすべて削除しますか？`)) return;
     await setLocal({
       sunoQueue: [],
       sunoRunner: { ...runner, paused: false, currentId: null, message: "キューをすべて削除しました。" },
@@ -168,9 +201,12 @@ export function App() {
     setNotice("キューをすべて削除しました。");
   }
 
-  async function saveSettings(nextSettings) {
+  async function saveSettings(next) {
+    const merged = { ...settings, ...next };
     const normalized = {
-      intervalSeconds: Math.min(300, Math.max(10, Number(nextSettings.intervalSeconds) || 20)),
+      ...merged,
+      intervalSeconds: Math.min(300, Math.max(10, Number(merged.intervalSeconds) || 20)),
+      commonStyle: merged.commonStyle ?? "",
     };
     setSettings(normalized);
     await setLocal({ sunoSettings: normalized });
@@ -181,7 +217,7 @@ export function App() {
       <header className="app-header">
         <div>
           <h1>Sunoプロンプト生成</h1>
-          <p className="connection-label">Customモード・Lyrics用</p>
+          <p className="connection-label">Customモード自動入力</p>
         </div>
         <button className="icon-button" type="button" aria-label="設定" onClick={() => setShowSettings(!showSettings)}>
           設定
@@ -211,16 +247,50 @@ export function App() {
       )}
 
       <section className="input-section">
-        <div className="section-heading">
-          <h2>Lyricsを貼り付け</h2>
-          <p>1行に1件、または「曲名,Lyrics」のCSV</p>
+        <div className="toggle-group" role="group" aria-label="Sunoへ入力する項目">
+          <div className="toggle-row">
+            <div className="toggle-text">
+              <strong>スタイルを曲ごとに変える</strong>
+              <span>{perSong ? "曲ごとにスタイルを指定します" : "全曲に同じスタイルを使います"}</span>
+            </div>
+            <Switch
+              checked={perSong}
+              onChange={(on) => saveSettings({ styleMode: on ? "perSong" : "common" })}
+              label="スタイルを曲ごとに変える"
+            />
+          </div>
+          {!perSong && (
+            <div className="toggle-row style-row">
+              <input
+                className="common-style-input"
+                type="text"
+                value={settings.commonStyle}
+                onChange={(event) => saveSettings({ commonStyle: event.target.value })}
+                placeholder="共通スタイル（空欄ならSuno画面の値をそのまま使用）"
+                aria-label="共通スタイル"
+              />
+            </div>
+          )}
+          <div className="toggle-row">
+            <div className="toggle-text">
+              <strong>タイトルを入力する</strong>
+              <span>{settings.useTitle ? "曲ごとのタイトルを入力します" : "Sunoの自動タイトルに任せます"}</span>
+            </div>
+            <Switch
+              checked={settings.useTitle}
+              onChange={(on) => saveSettings({ useTitle: on })}
+              label="タイトルを入力する"
+            />
+          </div>
         </div>
+
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder={'Neon Morning,"80s city pop, warm bass, instrumental"'}
-          aria-label="Lyrics入力"
+          placeholder={placeholder}
+          aria-label="曲の入力"
         />
+        <p className="format-hint">{formatHint}</p>
         <div className="input-actions">
           <input ref={fileInputRef} type="file" accept=".csv,text/csv,text/plain" hidden onChange={(event) => handleFile(event.target.files?.[0])} />
           <button className="secondary-button" type="button" onClick={() => fileInputRef.current?.click()}>
@@ -235,7 +305,7 @@ export function App() {
       <section className="queue-section">
         <div className="queue-heading">
           <div>
-            <h2>キュー（{queue.length}件）</h2>
+            <h2>キュー（{queue.length}曲）</h2>
             <span>{finished} / {queue.length}</span>
           </div>
           <div className="progress-track" aria-label={`進捗 ${progress}%`}>
@@ -246,57 +316,63 @@ export function App() {
         <div className="queue-list">
           {queue.length === 0 ? (
             <div className="empty-state">
+              <span className="empty-glyph" aria-hidden="true">♪</span>
               <strong>生成キューは空です</strong>
-              <span>プロンプトを追加してください。</span>
+              <span>曲を追加してください。</span>
             </div>
-          ) : queue.map((item, index) => (
-            <article className={`queue-item status-${item.status}`} key={item.id}>
-              <span className="item-number">{index + 1}</span>
-              <div className="item-content">
-                <strong>{item.title}</strong>
-                <span title={item.prompt}>{item.prompt}</span>
-                {item.error && <small>{item.error}</small>}
-              </div>
-              <div className={`status-chip ${item.status}`}>
-                {STATUS_LABELS[item.status]}
-              </div>
-              <div className="item-actions">
-                {item.status === "failed" && (
-                  <button className="retry-button" type="button" onClick={() => retry(item.id)} aria-label={`${item.title}を再試行`}>
-                    再試行
+          ) : queue.map((item, index) => {
+            const displayTitle = item.title || `曲 ${index + 1}`;
+            return (
+              <article className={`queue-item status-${item.status}`} key={item.id}>
+                <span className="item-number">{index + 1}</span>
+                <div className="item-content">
+                  <strong>{displayTitle}</strong>
+                  {perSong && item.style && <span className="item-style" title={item.style}>{item.style}</span>}
+                  <span title={item.lyrics}>{item.lyrics}</span>
+                  {item.error && <small>{item.error}</small>}
+                </div>
+                <div className={`status-chip ${item.status}`}>
+                  {STATUS_LABELS[item.status]}
+                </div>
+                <div className="item-actions">
+                  {item.status === "failed" && (
+                    <button className="retry-button" type="button" onClick={() => retry(item.id)} aria-label={`${displayTitle}を再試行`}>
+                      再試行
+                    </button>
+                  )}
+                  <button className="icon-button small" type="button" onClick={() => remove(item.id)} aria-label={`${displayTitle}を削除`}>
+                    削除
                   </button>
-                )}
-                <button className="icon-button small" type="button" onClick={() => remove(item.id)} aria-label={`${item.title}を削除`}>
-                  削除
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+                </div>
+              </article>
+            );
+          })}
 
-        {queue.length > 0 && (
-          <div className="queue-tools">
-            {summary.complete > 0 && (
-              <button className="clear-button" type="button" onClick={clearCompleted}>完了分を削除</button>
-            )}
-            <button className="clear-button danger" type="button" onClick={clearQueue}>キューをすべて削除</button>
-          </div>
-        )}
+          {queue.length > 0 && (
+            <div className="queue-tools">
+              {summary.complete > 0 && (
+                <button className="clear-button" type="button" onClick={clearCompleted}>完了分を削除</button>
+              )}
+              <button className="clear-button danger" type="button" onClick={clearQueue}>キューをすべて削除</button>
+            </div>
+          )}
+        </div>
       </section>
 
-      <div className="status-bar" role="status">
-        <span className={runner.running ? "status-dot active" : "status-dot"} />
-        <span>{notice || runner.message || (runner.running ? "バックグラウンドで生成中です。" : "SunoのCreate画面で開始してください。")}</span>
+      <div className="bottom-chrome">
+        <div className="status-bar" role="status">
+          <span className={runner.running ? "status-dot active" : "status-dot"} />
+          <span>{notice || runner.message || (runner.running ? "バックグラウンドで生成中です。" : "SunoのCreate画面で開始してください。")}</span>
+        </div>
+        <footer className="action-footer">
+          <button className="primary-button" type="button" onClick={start} disabled={runner.running && !runner.paused}>
+            {runner.paused ? "再開" : "開始"}
+          </button>
+          <button className="stop-button" type="button" onClick={stop} disabled={!runner.running}>
+            停止
+          </button>
+        </footer>
       </div>
-
-      <footer className="action-footer">
-        <button className="primary-button" type="button" onClick={start} disabled={runner.running && !runner.paused}>
-          {runner.paused ? "再開" : "開始"}
-        </button>
-        <button className="stop-button" type="button" onClick={stop} disabled={!runner.running}>
-          停止
-        </button>
-      </footer>
     </main>
   );
 }

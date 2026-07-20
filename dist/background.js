@@ -1,6 +1,6 @@
 const NEXT_ALARM = "suno-process-next";
 const RECOVERY_ALARM = "suno-process-recovery";
-const DEFAULT_SETTINGS = { intervalSeconds: 20 };
+const DEFAULT_SETTINGS = { intervalSeconds: 20, styleMode: "common", useTitle: false, commonStyle: "" };
 const DEFAULT_RUNNER = { running: false, paused: false, currentId: null, tabId: null, message: "" };
 
 let processing = false;
@@ -71,7 +71,7 @@ async function processNext() {
     const stored = await chrome.storage.local.get(["sunoQueue", "sunoRunner", "sunoSettings"]);
     let queue = stored.sunoQueue ?? [];
     let runner = stored.sunoRunner ?? DEFAULT_RUNNER;
-    const settings = stored.sunoSettings ?? DEFAULT_SETTINGS;
+    const settings = { ...DEFAULT_SETTINGS, ...(stored.sunoSettings ?? {}) };
 
     if (!runner.running || runner.paused) return;
 
@@ -112,6 +112,7 @@ async function processNext() {
     }
 
     const item = queue[index];
+    const displayTitle = item.title || `曲 ${index + 1}`;
     queue[index] = { ...item, status: "processing", error: "" };
     runner = {
       ...runner,
@@ -119,14 +120,21 @@ async function processNext() {
       paused: false,
       currentId: item.id,
       tabId,
-      message: `${index + 1}曲目「${item.title}」を入力しています。`,
+      message: `${index + 1}曲目「${displayTitle}」を入力しています。`,
     };
     await updateState(queue, runner);
 
     chrome.alarms.create(RECOVERY_ALARM, { when: Date.now() + 120000 });
 
+    // トグル設定から実際にSunoへ入力する値を決める。空文字の欄はcontent側が入力をスキップする。
+    const payload = {
+      title: settings.useTitle ? item.title || "" : "",
+      style: settings.styleMode === "perSong" ? item.style || "" : settings.commonStyle || "",
+      lyrics: item.lyrics ?? item.prompt ?? "",
+    };
+
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "PROCESS_ITEM", item });
+      const response = await chrome.tabs.sendMessage(tabId, { type: "PROCESS_ITEM", item: payload });
       if (!response?.ok) throw new Error(response?.error || "Suno画面の操作に失敗しました。");
 
       await chrome.alarms.clear(RECOVERY_ALARM);
@@ -144,8 +152,8 @@ async function processNext() {
         paused: wasStopped,
         currentId: null,
         message: wasStopped
-          ? `「${item.title}」の送信後に停止しました。`
-          : `「${item.title}」をSunoへ送信しました。バックグラウンドで続行します。`,
+          ? `「${displayTitle}」の送信後に停止しました。`
+          : `「${displayTitle}」をSunoへ送信しました。バックグラウンドで続行します。`,
       };
       await updateState(nextQueue, nextRunner);
       if (!wasStopped) await scheduleNext(settings.intervalSeconds);
@@ -172,9 +180,15 @@ async function processNext() {
 
 async function initializeStorage() {
   const stored = await chrome.storage.local.get(["sunoQueue", "sunoRunner", "sunoSettings"]);
-  const queue = (stored.sunoQueue ?? []).map((item) => (
-    item.status === "processing" ? { ...item, status: "waiting", error: "" } : item
-  ));
+  // 旧バージョン(prompt)のキューをlyricsへ移行しつつ、処理中断分を待機へ戻す
+  const queue = (stored.sunoQueue ?? []).map(({ prompt, ...item }) => ({
+    ...item,
+    title: item.title ?? "",
+    style: item.style ?? "",
+    lyrics: item.lyrics ?? prompt ?? "",
+    status: item.status === "processing" ? "waiting" : item.status,
+    error: item.status === "processing" ? "" : item.error,
+  }));
   const runner = { ...(stored.sunoRunner ?? DEFAULT_RUNNER), currentId: null };
   await chrome.storage.local.set({
     sunoQueue: queue,
