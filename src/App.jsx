@@ -217,7 +217,7 @@ export function App() {
       <header className="app-header">
         <div>
           <h1>Sunoプロンプト生成</h1>
-          <p className="connection-label">Customモード自動入力</p>
+          <p className="connection-label">Advanced（旧Custom）モード自動入力</p>
         </div>
         <button className="icon-button" type="button" aria-label="設定" onClick={() => setShowSettings(!showSettings)}>
           設定

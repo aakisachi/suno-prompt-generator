@@ -1,6 +1,6 @@
 # Sunoプロンプト生成
 
-複数の曲（リリック・スタイル・タイトル）をSunoのCustomモードへ順番に入力し、Createを押すChrome拡張機能です。
+複数の曲（リリック・スタイル・タイトル）をSunoのAdvanced（旧Custom）モードへ順番に入力し、Createを押すChrome拡張機能です。
 
 > [!IMPORTANT]
 > 非公式ツールです。Suno, Inc.とは関係ありません。利用前にSunoの最新の利用規約を確認し、自分の責任で使用してください。
@@ -40,7 +40,7 @@ git clone https://github.com/aakisachi/suno-prompt-generator.git
 
 ## 使い方
 
-1. Chromeで `https://suno.com/create` を開き、Customモードにします。
+1. Chromeで `https://suno.com/create` を開き、Advanced（旧Custom）モードにします。
 2. Chrome右上の拡張機能から「Sunoプロンプト生成」を開きます。
 3. トグルで入力する項目（スタイル共通/曲ごと、タイトルあり/なし）を選びます。
 4. 曲を貼り付けるか、CSVを読み込みます。
