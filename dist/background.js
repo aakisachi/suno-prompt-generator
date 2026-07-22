@@ -56,6 +56,19 @@ async function scheduleNext(intervalSeconds) {
   });
 }
 
+// 拡張機能の更新直後は既存タブに旧content scriptしか無く通信できないため、
+// 接続エラー時はcontent.jsを注入し直してから1回だけ再試行する
+async function sendToContent(tabId, payload) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: "PROCESS_ITEM", item: payload });
+  } catch (error) {
+    if (!/Receiving end does not exist|Could not establish connection/i.test(error?.message || "")) throw error;
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return chrome.tabs.sendMessage(tabId, { type: "PROCESS_ITEM", item: payload });
+  }
+}
+
 async function findSunoTab() {
   const tabs = await chrome.tabs.query({
     url: ["https://suno.com/*", "https://app.suno.ai/*"],
@@ -134,7 +147,7 @@ async function processNext() {
     };
 
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "PROCESS_ITEM", item: payload });
+      const response = await sendToContent(tabId, payload);
       if (!response?.ok) throw new Error(response?.error || "Suno画面の操作に失敗しました。");
 
       await chrome.alarms.clear(RECOVERY_ALARM);

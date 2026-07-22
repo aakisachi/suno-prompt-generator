@@ -84,19 +84,25 @@ h2 { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01
 
 .settings-panel {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0 20px 12px;
-  padding: 12px 14px;
+  padding: 4px 14px;
   background: var(--fill);
   border-radius: 12px;
 }
-.settings-panel > div:first-child { flex: 1; }
-.settings-panel strong { display: block; font-size: 13px; letter-spacing: -0.01em; }
+.settings-panel strong { display: block; font-size: 13px; font-weight: 590; letter-spacing: -0.01em; }
 .settings-panel span { color: var(--secondary); font-size: 11px; }
-.settings-panel label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary); }
-.settings-panel input {
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 0;
+}
+.settings-row + .settings-row { border-top: 0.5px solid var(--separator); }
+.settings-row .toggle-text { flex: 1; }
+.interval-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary); }
+.interval-label input {
   width: 58px;
   padding: 6px 8px;
   border: 0;
@@ -105,25 +111,17 @@ h2 { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01
   box-shadow: inset 0 0 0 1px var(--separator);
   text-align: center;
 }
+.settings-caption {
+  padding: 10px 0 2px;
+  border-top: 0.5px solid var(--separator);
+  color: var(--secondary);
+  font-size: 11px;
+}
 
 /* ---- 入力エリア ---- */
 
 .input-section { flex: 0 0 auto; padding: 0 20px 14px; }
 
-.toggle-group {
-  background: var(--fill);
-  border-radius: 12px;
-  margin-bottom: 12px;
-}
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
-  padding: 8px 14px;
-}
-.toggle-row + .toggle-row { border-top: 0.5px solid var(--separator); margin-left: 14px; padding-left: 0; padding-right: 14px; }
 .toggle-text strong { display: block; font-size: 13px; font-weight: 590; letter-spacing: -0.01em; }
 .toggle-text span { display: block; margin-top: 1px; color: var(--secondary); font-size: 11px; }
 
@@ -152,7 +150,6 @@ h2 { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01
 .switch:active .switch-knob { width: 27px; }
 .switch.on:active .switch-knob { transform: translateX(15px); }
 
-.style-row { padding: 8px 14px; }
 .common-style-input {
   width: 100%;
   padding: 9px 12px;
@@ -289,6 +286,32 @@ textarea::placeholder { color: var(--tertiary); }
 .stop-button { flex: 1; background: var(--fill); color: var(--red); }
 .stop-button:hover { background: var(--fill-strong); }
 .stop-button:active { transform: scale(0.97); }
+
+/* ---- ホバー詳細パネル（ポップアップの左側に展開） ---- */
+
+.popup-root { display: flex; width: fit-content; background: #ffffff; }
+.popup-root .app-shell { flex: 0 0 420px; }
+
+.detail-pane {
+  flex: 0 0 340px;
+  width: 340px;
+  height: 700px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px;
+  background: #fbfbfd;
+  border-right: 0.5px solid var(--separator);
+  animation: detail-pane-in 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes detail-pane-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: none; }
+}
+.hover-section + .hover-section { margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--separator); }
+.hover-label { display: block; margin-bottom: 4px; color: var(--secondary); font-size: 10px; font-weight: 600; letter-spacing: 0.02em; }
+.hover-section p { margin: 0; font-size: 12px; line-height: 1.55; overflow-wrap: break-word; }
+.hover-section em { color: var(--tertiary); font-style: normal; }
+.hover-lyrics { white-space: pre-wrap; }
 
 /* ---- アクセシビリティ ---- */
 

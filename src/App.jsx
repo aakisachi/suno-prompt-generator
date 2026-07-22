@@ -8,7 +8,15 @@ const STATUS_LABELS = {
   failed: "失敗",
 };
 
-const DEFAULT_SETTINGS = { intervalSeconds: 20, styleMode: "common", useTitle: false, commonStyle: "" };
+const DEFAULT_SETTINGS = {
+  intervalSeconds: 20,
+  styleMode: "common",
+  useTitle: false,
+  commonStyle: "",
+  previewTitle: true,
+  previewStyle: true,
+  previewLyrics: true,
+};
 
 const isExtension = typeof chrome !== "undefined" && Boolean(chrome.storage?.local);
 
@@ -61,7 +69,9 @@ export function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const [notice, setNotice] = useState("");
+  const [hover, setHover] = useState(null);
   const fileInputRef = useRef(null);
+  const hoverCloseTimer = useRef(null);
 
   useEffect(() => {
     getLocal(["sunoQueue", "sunoRunner", "sunoSettings"]).then((stored) => {
@@ -201,6 +211,24 @@ export function App() {
     setNotice("キューをすべて削除しました。");
   }
 
+  const previewEnabled = settings.previewTitle || settings.previewStyle || settings.previewLyrics;
+
+  function showHover(item, index) {
+    if (!previewEnabled) return;
+    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
+    setHover({ item, index });
+  }
+
+  // 行間の移動やパネルへのマウス移動で窓がちらつかないよう、少し待ってから閉じる
+  function scheduleHoverClose() {
+    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
+    hoverCloseTimer.current = setTimeout(() => setHover(null), 120);
+  }
+
+  function cancelHoverClose() {
+    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
+  }
+
   async function saveSettings(next) {
     const merged = { ...settings, ...next };
     const normalized = {
@@ -213,7 +241,35 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <div className="popup-root">
+      {hover && (
+        <aside
+          className="detail-pane"
+          aria-label="曲の詳細"
+          onMouseEnter={cancelHoverClose}
+          onMouseLeave={scheduleHoverClose}
+        >
+          {settings.previewTitle && (
+            <div className="hover-section">
+              <span className="hover-label">タイトル</span>
+              <p>{hover.item.title || `曲 ${hover.index + 1}`}</p>
+            </div>
+          )}
+          {settings.previewStyle && (
+            <div className="hover-section">
+              <span className="hover-label">スタイル</span>
+              <p>{(perSong ? hover.item.style : settings.commonStyle) || <em>Suno画面の値を使用</em>}</p>
+            </div>
+          )}
+          {settings.previewLyrics && (
+            <div className="hover-section">
+              <span className="hover-label">リリック</span>
+              <p className="hover-lyrics">{hover.item.lyrics}</p>
+            </div>
+          )}
+        </aside>
+      )}
+      <main className="app-shell">
       <header className="app-header">
         <div>
           <h1>Sunoプロンプト生成</h1>
@@ -226,29 +282,27 @@ export function App() {
 
       {showSettings && (
         <section className="settings-panel" aria-label="設定">
-          <div>
-            <strong>生成間隔</strong>
-            <span>次のCreateを押すまでの待ち時間</span>
+          <div className="settings-row">
+            <div className="toggle-text">
+              <strong>生成間隔</strong>
+              <span>次のCreateを押すまでの待ち時間</span>
+            </div>
+            <label className="interval-label">
+              <input
+                type="number"
+                min="10"
+                max="300"
+                value={settings.intervalSeconds}
+                onChange={(event) => saveSettings({ intervalSeconds: event.target.value })}
+              />
+              秒
+            </label>
+            <button className="icon-button small" type="button" aria-label="設定を閉じる" onClick={() => setShowSettings(false)}>
+              閉じる
+            </button>
           </div>
-          <label>
-            <input
-              type="number"
-              min="10"
-              max="300"
-              value={settings.intervalSeconds}
-              onChange={(event) => saveSettings({ intervalSeconds: event.target.value })}
-            />
-            秒
-          </label>
-          <button className="icon-button small" type="button" aria-label="設定を閉じる" onClick={() => setShowSettings(false)}>
-            閉じる
-          </button>
-        </section>
-      )}
-
-      <section className="input-section">
-        <div className="toggle-group" role="group" aria-label="Sunoへ入力する項目">
-          <div className="toggle-row">
+          <p className="settings-caption">Sunoへ入力する項目</p>
+          <div className="settings-row">
             <div className="toggle-text">
               <strong>スタイルを曲ごとに変える</strong>
               <span>{perSong ? "曲ごとにスタイルを指定します" : "全曲に同じスタイルを使います"}</span>
@@ -260,7 +314,7 @@ export function App() {
             />
           </div>
           {!perSong && (
-            <div className="toggle-row style-row">
+            <div className="settings-row">
               <input
                 className="common-style-input"
                 type="text"
@@ -271,7 +325,7 @@ export function App() {
               />
             </div>
           )}
-          <div className="toggle-row">
+          <div className="settings-row">
             <div className="toggle-text">
               <strong>タイトルを入力する</strong>
               <span>{settings.useTitle ? "曲ごとのタイトルを入力します" : "Sunoの自動タイトルに任せます"}</span>
@@ -282,8 +336,23 @@ export function App() {
               label="タイトルを入力する"
             />
           </div>
-        </div>
+          <p className="settings-caption">マウスを乗せたときの詳細窓に表示する項目</p>
+          <div className="settings-row">
+            <div className="toggle-text"><strong>タイトルを表示</strong></div>
+            <Switch checked={settings.previewTitle} onChange={(on) => saveSettings({ previewTitle: on })} label="詳細窓にタイトルを表示" />
+          </div>
+          <div className="settings-row">
+            <div className="toggle-text"><strong>スタイルを表示</strong></div>
+            <Switch checked={settings.previewStyle} onChange={(on) => saveSettings({ previewStyle: on })} label="詳細窓にスタイルを表示" />
+          </div>
+          <div className="settings-row">
+            <div className="toggle-text"><strong>リリックを表示</strong></div>
+            <Switch checked={settings.previewLyrics} onChange={(on) => saveSettings({ previewLyrics: on })} label="詳細窓にリリックを表示" />
+          </div>
+        </section>
+      )}
 
+      <section className="input-section">
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -323,12 +392,17 @@ export function App() {
           ) : queue.map((item, index) => {
             const displayTitle = item.title || `曲 ${index + 1}`;
             return (
-              <article className={`queue-item status-${item.status}`} key={item.id}>
+              <article
+                className={`queue-item status-${item.status}`}
+                key={item.id}
+                onMouseEnter={() => showHover(item, index)}
+                onMouseLeave={scheduleHoverClose}
+              >
                 <span className="item-number">{index + 1}</span>
                 <div className="item-content">
                   <strong>{displayTitle}</strong>
-                  {perSong && item.style && <span className="item-style" title={item.style}>{item.style}</span>}
-                  <span title={item.lyrics}>{item.lyrics}</span>
+                  {perSong && item.style && <span className="item-style">{item.style}</span>}
+                  <span>{item.lyrics}</span>
                   {item.error && <small>{item.error}</small>}
                 </div>
                 <div className={`status-chip ${item.status}`}>
@@ -374,5 +448,6 @@ export function App() {
         </footer>
       </div>
     </main>
+    </div>
   );
 }

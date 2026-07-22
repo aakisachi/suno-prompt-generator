@@ -87,16 +87,10 @@
     return null;
   }
 
-  function findLargestArea() {
-    return candidates()
-      .filter((element) => element.tagName === "TEXTAREA" || element.isContentEditable)
-      .sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0] ?? null;
-  }
-
+  // Simpleモードで誤ってSong Description欄へ入力しないよう、確実に特定できた場合だけ返す
   function findLyricsField() {
     return findByKeywords(FIELDS.lyrics)
-      ?? findByHeading(/^lyrics$/i, '[contenteditable="true"], textarea')
-      ?? findLargestArea();
+      ?? findByHeading(/^lyrics$/i, '[contenteditable="true"], textarea');
   }
 
   // Sunoのスタイル欄は属性にstyleの語を持たないため、見出し「Styles」からの探索を優先する

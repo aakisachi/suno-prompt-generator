@@ -9,8 +9,14 @@ const appPath = new URL("../src/App.jsx", import.meta.url);
 
 test("バックグラウンド実行に必要な権限だけを使用する", async () => {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "storage"]);
+  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "alarms", "scripting", "storage"]);
   assert.equal(manifest.permissions.includes("tabs"), false);
+});
+
+test("接続エラー時はcontent scriptを注入し直して再試行する", async () => {
+  const source = await readFile(backgroundPath, "utf8");
+  assert.match(source, /Receiving end does not exist/);
+  assert.match(source, /chrome\.scripting\.executeScript/);
 });
 
 test("バックグラウンドがアラームで次の曲を処理する", async () => {
