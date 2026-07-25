@@ -2,7 +2,7 @@ const TITLE_KEYS = ["タイトル", "title", "曲名", "name"];
 const STYLE_KEYS = ["スタイル", "style", "styles"];
 const LYRICS_KEYS = ["リリック", "lyrics", "歌詞", "prompt", "プロンプト", "description"];
 
-const DEFAULT_OPTIONS = { styleMode: "common", useTitle: false };
+const DEFAULT_OPTIONS = { styleMode: "common", useTitle: false, multilinePerSong: true };
 const LABEL_PATTERN = /^(タイトル|title|曲名|スタイル|style|リリック|lyrics|歌詞)\s*[:：]\s*(.*)$/i;
 const SEPARATOR_PATTERN = /^\s*(-{3,}|\*{3,})\s*$/;
 
@@ -48,6 +48,8 @@ function createItem({ title = "", style = "", lyrics = "" }, index) {
     lyrics: lyrics.trim(),
     status: "waiting",
     error: "",
+    repeat: 1,
+    done: 0,
   };
 }
 
@@ -138,10 +140,21 @@ export function parsePromptText(text, options = {}) {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
+  // 判定の優先順位:
+  // 1. 「---」区切りや「タイトル:」ラベルがある → ブロック形式
+  // 2. 列名の見出し行がある → CSV
+  // 3. multilinePerSong → 改行を含めて全体で1曲（長文プロンプト向け）
+  // 4. それ以外 → 1行1曲
+  const rows = parseCsvRows(trimmed);
   const isBlockFormat = trimmed.split(/\r?\n/).some(
     (line) => SEPARATOR_PATTERN.test(line) || LABEL_PATTERN.test(line),
   );
-  const songs = isBlockFormat ? parseBlocks(trimmed) : parseRows(parseCsvRows(trimmed), merged);
+  const hasCsvHeader = Boolean(detectHeader(rows[0] ?? []));
+
+  let songs;
+  if (isBlockFormat) songs = parseBlocks(trimmed);
+  else if (!hasCsvHeader && merged.multilinePerSong) songs = [{ lyrics: trimmed }];
+  else songs = parseRows(rows, merged);
 
   return songs
     .map((song, index) => createItem(song, index))
@@ -156,6 +169,8 @@ export function migrateItem(item) {
     title: item.title ?? "",
     style: item.style ?? "",
     lyrics: item.lyrics ?? prompt ?? "",
+    repeat: item.repeat ?? 1,
+    done: item.done ?? 0,
   };
 }
 

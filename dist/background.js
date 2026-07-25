@@ -6,7 +6,7 @@ const DEFAULT_RUNNER = { running: false, paused: false, currentId: null, tabId: 
 let processing = false;
 
 async function setBadge(queue, runner) {
-  const completed = queue.filter((item) => item.status === "complete").length;
+  const completed = queue.reduce((total, item) => total + (item.done || 0), 0);
   if (runner.running) {
     await chrome.action.setBadgeBackgroundColor({ color: "#0b67e3" });
     await chrome.action.setBadgeText({ text: String(completed).slice(-4) });
@@ -126,6 +126,9 @@ async function processNext() {
 
     const item = queue[index];
     const displayTitle = item.title || `曲 ${index + 1}`;
+    const repeat = item.repeat || 1;
+    // このitemの現在の生成回数（done完了済み+1回目）。繰り返し中の進捗表示に使う。
+    const runLabel = repeat > 1 ? `（${(item.done || 0) + 1}/${repeat}）` : "";
     queue[index] = { ...item, status: "processing", error: "" };
     runner = {
       ...runner,
@@ -133,7 +136,7 @@ async function processNext() {
       paused: false,
       currentId: item.id,
       tabId,
-      message: `${index + 1}曲目「${displayTitle}」を入力しています。`,
+      message: `${index + 1}曲目「${displayTitle}」${runLabel}を入力しています。`,
     };
     await updateState(queue, runner);
 
@@ -154,19 +157,31 @@ async function processNext() {
       const refreshed = await chrome.storage.local.get(["sunoQueue", "sunoRunner"]);
       const nextQueue = refreshed.sunoQueue ?? queue;
       const currentRunner = refreshed.sunoRunner ?? runner;
+      // 1回送信できたのでdoneを進める。repeat回に達したら完了、まだなら待機へ戻して次の回で再生成する。
       const completedIndex = nextQueue.findIndex((candidate) => candidate.id === item.id);
+      let isFullyDone = true;
       if (completedIndex >= 0) {
-        nextQueue[completedIndex] = { ...nextQueue[completedIndex], status: "complete", error: "" };
+        const target = nextQueue[completedIndex];
+        const targetRepeat = target.repeat || 1;
+        const done = (target.done || 0) + 1;
+        isFullyDone = done >= targetRepeat;
+        nextQueue[completedIndex] = {
+          ...target,
+          done,
+          status: isFullyDone ? "complete" : "waiting",
+          error: "",
+        };
       }
       const wasStopped = !currentRunner.running || currentRunner.paused;
+      const progressLabel = repeat > 1 ? `（${(item.done || 0) + 1}/${repeat}）` : "";
       const nextRunner = {
         ...currentRunner,
         running: !wasStopped,
         paused: wasStopped,
         currentId: null,
         message: wasStopped
-          ? `「${displayTitle}」の送信後に停止しました。`
-          : `「${displayTitle}」をSunoへ送信しました。バックグラウンドで続行します。`,
+          ? `「${displayTitle}」${progressLabel}の送信後に停止しました。`
+          : `「${displayTitle}」${progressLabel}をSunoへ送信しました。バックグラウンドで続行します。`,
       };
       await updateState(nextQueue, nextRunner);
       if (!wasStopped) await scheduleNext(settings.intervalSeconds);
@@ -199,6 +214,8 @@ async function initializeStorage() {
     title: item.title ?? "",
     style: item.style ?? "",
     lyrics: item.lyrics ?? prompt ?? "",
+    repeat: item.repeat ?? 1,
+    done: item.done ?? 0,
     status: item.status === "processing" ? "waiting" : item.status,
     error: item.status === "processing" ? "" : item.error,
   }));

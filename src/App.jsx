@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS = {
   styleMode: "common",
   useTitle: false,
   commonStyle: "",
+  repeatCount: 1,
+  multilinePerSong: true,
   previewTitle: true,
   previewStyle: true,
   previewLyrics: true,
@@ -45,6 +47,58 @@ async function getActiveTab() {
 
 function isSunoUrl(url = "") {
   return /^https:\/\/(www\.)?(suno\.com|app\.suno\.ai)\//.test(url);
+}
+
+// 入力中は打った文字をそのまま保持し、確定（フォーカスが外れる／Enter）で範囲内へ丸める。
+// 1文字ごとに補正すると、消して打ち直す操作ができなくなるため。
+function NumberField({ value, min, max, step, unit, label, onCommit }) {
+  const [draft, setDraft] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
+
+  function handleChange(event) {
+    const next = event.target.value;
+    setDraft(next);
+    const parsed = Number(next);
+    // 範囲内の値になった時点だけ即保存する（範囲外の途中入力は保存しない）
+    if (next !== "" && Number.isFinite(parsed) && parsed >= min && parsed <= max) {
+      onCommit(Math.floor(parsed));
+    }
+  }
+
+  function handleBlur() {
+    setEditing(false);
+    const parsed = Math.floor(Number(draft));
+    const next = draft !== "" && Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : value;
+    setDraft(String(next));
+    onCommit(next);
+  }
+
+  return (
+    <label className="interval-label">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        aria-label={label}
+        onFocus={(event) => {
+          setEditing(true);
+          event.target.select();
+        }}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      {unit}
+    </label>
+  );
 }
 
 function Switch({ checked, onChange, label }) {
@@ -96,16 +150,23 @@ export function App() {
   }, []);
 
   const summary = useMemo(() => summarizeQueue(queue), [queue]);
-  const finished = summary.complete + summary.failed;
-  const progress = queue.length ? Math.round((finished / queue.length) * 100) : 0;
+  // 繰り返し生成に対応するため、進捗は「曲数」ではなく「生成回数」で数える。
+  const totalRuns = useMemo(() => queue.reduce((total, item) => total + (item.repeat || 1), 0), [queue]);
+  const doneRuns = useMemo(() => queue.reduce((total, item) => total + (item.done || 0), 0), [queue]);
+  const progress = totalRuns ? Math.round((doneRuns / totalRuns) * 100) : 0;
   const perSong = settings.styleMode === "perSong";
+  const repeatCount = Math.max(1, settings.repeatCount || 1);
 
   const formatHint = useMemo(() => {
+    const labels = "「タイトル:」「スタイル:」「リリック:」のラベルで指定できます。";
+    if (settings.multilinePerSong) {
+      return `貼り付けた内容がまるごと1曲になります。複数曲を入れるときは「---」で区切り、${labels}`;
+    }
     const columns = ["リリック"];
     if (perSong) columns.unshift("スタイル");
     if (settings.useTitle) columns.unshift("タイトル");
-    return `1行に1曲（${columns.join("，")}）。複数行のリリックは「---」で曲を区切り、「タイトル:」「スタイル:」「リリック:」のラベルで指定できます。`;
-  }, [perSong, settings.useTitle]);
+    return `1行に1曲（${columns.join("，")}）。複数行のリリックは「---」で曲を区切り、${labels}`;
+  }, [perSong, settings.useTitle, settings.multilinePerSong]);
 
   const placeholder = useMemo(() => {
     const lines = [];
@@ -120,27 +181,45 @@ export function App() {
     await setLocal({ sunoQueue: nextQueue });
   }
 
+  function withRepeat(items) {
+    return items.map((item) => ({ ...item, repeat: repeatCount }));
+  }
+
+  function addedNotice(count, source) {
+    const times = repeatCount > 1 ? `各${repeatCount}回で` : "";
+    return `${count}曲を${source}${times}キューに追加しました。`;
+  }
+
   async function addPrompts(rawText = text) {
-    const items = parsePromptText(rawText, { styleMode: settings.styleMode, useTitle: settings.useTitle });
+    const items = parsePromptText(rawText, {
+      styleMode: settings.styleMode,
+      useTitle: settings.useTitle,
+      multilinePerSong: settings.multilinePerSong,
+    });
     if (!items.length) {
       setNotice("追加できる曲がありません。");
       return;
     }
-    await persistQueue([...queue, ...items]);
+    await persistQueue([...queue, ...withRepeat(items)]);
     setText("");
-    setNotice(`${items.length}曲をキューに追加しました。`);
+    setNotice(addedNotice(items.length, ""));
   }
 
   async function handleFile(file) {
     if (!file) return;
     const content = await file.text();
-    const items = parsePromptText(content, { styleMode: settings.styleMode, useTitle: settings.useTitle });
+    // CSVファイルは行単位が前提なので、まとめて1曲にはしない
+    const items = parsePromptText(content, {
+      styleMode: settings.styleMode,
+      useTitle: settings.useTitle,
+      multilinePerSong: false,
+    });
     if (!items.length) {
       setNotice("CSVから曲を読み取れませんでした。");
       return;
     }
-    await persistQueue([...queue, ...items]);
-    setNotice(`${items.length}曲をCSVから追加しました。`);
+    await persistQueue([...queue, ...withRepeat(items)]);
+    setNotice(addedNotice(items.length, "CSVから"));
   }
 
   async function sendToBackground(type, payload = {}, requireSunoTab = true) {
@@ -234,6 +313,7 @@ export function App() {
     const normalized = {
       ...merged,
       intervalSeconds: Math.min(300, Math.max(10, Number(merged.intervalSeconds) || 20)),
+      repeatCount: Math.min(999, Math.max(1, Math.floor(Number(merged.repeatCount) || 1))),
       commonStyle: merged.commonStyle ?? "",
     };
     setSettings(normalized);
@@ -287,19 +367,48 @@ export function App() {
               <strong>生成間隔</strong>
               <span>次のCreateを押すまでの待ち時間</span>
             </div>
-            <label className="interval-label">
-              <input
-                type="number"
-                min="10"
-                max="300"
-                value={settings.intervalSeconds}
-                onChange={(event) => saveSettings({ intervalSeconds: event.target.value })}
-              />
-              秒
-            </label>
+            <NumberField
+              value={settings.intervalSeconds}
+              min={10}
+              max={300}
+              step={5}
+              unit="秒"
+              label="生成間隔（秒）"
+              onCommit={(next) => saveSettings({ intervalSeconds: next })}
+            />
             <button className="icon-button small" type="button" aria-label="設定を閉じる" onClick={() => setShowSettings(false)}>
               閉じる
             </button>
+          </div>
+          <div className="settings-row">
+            <div className="toggle-text">
+              <strong>各プロンプトの生成回数</strong>
+              <span>同じ曲を続けて何回生成するか</span>
+            </div>
+            <NumberField
+              value={settings.repeatCount}
+              min={1}
+              max={999}
+              step={1}
+              unit="回"
+              label="各プロンプトの生成回数"
+              onCommit={(next) => saveSettings({ repeatCount: next })}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="toggle-text">
+              <strong>改行を含めて1曲として扱う</strong>
+              <span>
+                {settings.multilinePerSong
+                  ? "長文プロンプトをそのまま貼れます"
+                  : "1行ごとに別の曲として追加します"}
+              </span>
+            </div>
+            <Switch
+              checked={settings.multilinePerSong}
+              onChange={(on) => saveSettings({ multilinePerSong: on })}
+              label="改行を含めて1曲として扱う"
+            />
           </div>
           <p className="settings-caption">Sunoへ入力する項目</p>
           <div className="settings-row">
@@ -374,8 +483,8 @@ export function App() {
       <section className="queue-section">
         <div className="queue-heading">
           <div>
-            <h2>キュー（{queue.length}曲）</h2>
-            <span>{finished} / {queue.length}</span>
+            <h2>キュー（{queue.length}曲{totalRuns > queue.length ? ` / ${totalRuns}回` : ""}）</h2>
+            <span>{doneRuns} / {totalRuns}</span>
           </div>
           <div className="progress-track" aria-label={`進捗 ${progress}%`}>
             <div className="progress-value" style={{ width: `${progress}%` }} />
@@ -405,8 +514,15 @@ export function App() {
                   <span>{item.lyrics}</span>
                   {item.error && <small>{item.error}</small>}
                 </div>
-                <div className={`status-chip ${item.status}`}>
-                  {STATUS_LABELS[item.status]}
+                <div className="status-group">
+                  {(item.repeat || 1) > 1 && (
+                    <span className="repeat-badge" title={`${item.done || 0}/${item.repeat}回 生成済み`}>
+                      {item.done || 0}/{item.repeat}回
+                    </span>
+                  )}
+                  <div className={`status-chip ${item.status}`}>
+                    {STATUS_LABELS[item.status]}
+                  </div>
                 </div>
                 <div className="item-actions">
                   {item.status === "failed" && (

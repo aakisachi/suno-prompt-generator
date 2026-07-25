@@ -32,6 +32,13 @@ test("バックグラウンドがトグル設定から送信内容を組み立�
   assert.match(source, /settings\.commonStyle/);
 });
 
+test("繰り返し生成: doneを進め、repeat回に達するまで待機へ戻す", async () => {
+  const source = await readFile(backgroundPath, "utf8");
+  assert.match(source, /const done = \(target\.done \|\| 0\) \+ 1/);
+  assert.match(source, /done >= targetRepeat/);
+  assert.match(source, /isFullyDone \? "complete" : "waiting"/);
+});
+
 test("Suno画面側は1曲単位の処理だけを担当する", async () => {
   const source = await readFile(contentPath, "utf8");
   assert.match(source, /message\.type !== "PROCESS_ITEM"/);
