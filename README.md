@@ -95,7 +95,8 @@ git clone https://github.com/aakisachi/suno-prompt-generator.git
 
 ## 注意事項
 
-- Sunoの画面構成が変更されると、Lyrics入力欄やCreateボタンを見つけられなくなる場合があります。
+- Sunoの表示言語は英語・日本語どちらにも対応しています（Lyrics editor / 歌詞エディタ、Song Title / 曲名、Styles / スタイル、Create / 作成）。
+- Sunoの画面構成が変更されると、入力欄や作成ボタンを見つけられなくなる場合があります。
 - CAPTCHA（人間確認）やアクセス制限を回避しません。表示された場合は停止します。
 - Chromeを完全終了した場合やMacがスリープした場合は処理できません。Chrome再起動時にSunoタブが復元されていれば、保存済みのキューから再開します。
 - 処理対象のSunoタブを閉じると、安全のためキューを一時停止します。

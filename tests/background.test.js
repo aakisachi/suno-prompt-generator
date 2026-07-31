@@ -51,9 +51,32 @@ test("Suno画面側は空欄のタイトル・スタイルを入力しない", a
   assert.match(source, /if \(item\.style\)/);
 });
 
-test("スタイル検出はExclude Stylesを減点する", async () => {
+test("スタイル検出はExclude Styles/スタイルを除外を候補から外す", async () => {
   const source = await readFile(contentPath, "utf8");
   assert.match(source, /"exclude"/);
+  assert.match(source, /"除外"/);
+});
+
+test("日本語UIの要素名（歌詞エディタ・スタイル・曲名）に対応する", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /lyrics\|歌詞\|リリック/);
+  assert.match(source, /styles\?\|スタイル/);
+  assert.match(source, /曲名\|タイトル/);
+  assert.match(source, /include: \["title", "タイトル", "曲名"\]/);
+});
+
+test("英語UIの要素名も引き続き検出できる", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /"lyrics", "lyric"/);
+  assert.match(source, /include: \["style", "styles", "スタイル"\]/);
+  assert.match(source, /\(song \)\?title/);
+});
+
+test("作成/Createボタンはworkspace等の別ボタンを除外する", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /CREATE_EXACT = \/\^\(create\|生成\|作成\)\$\/i/);
+  assert.match(source, /CREATE_EXCLUDE[\s\S]{0,120}workspace/);
+  assert.match(source, /CREATE_EXCLUDE[\s\S]{0,120}ワークスペース/);
 });
 
 test("ポップアップはバックグラウンドへ開始命令を送る", async () => {

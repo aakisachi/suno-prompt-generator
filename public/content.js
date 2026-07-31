@@ -6,22 +6,30 @@
 
   const FIELD_SELECTOR = 'textarea, [contenteditable="true"], input[type="text"], input:not([type])';
 
+  // Sunoは表示言語で要素名が変わる（例: Lyrics editor / 歌詞エディタ、Song Title / 曲名）ため
+  // 英語・日本語の両方のキーワードを持つ
   const FIELDS = {
     lyrics: {
       include: ["lyrics", "lyric", "歌詞", "リリック"],
-      exclude: ["style", "スタイル", "description", "describe", "title", "タイトル", "exclude"],
+      exclude: ["style", "スタイル", "description", "describe", "title", "タイトル", "曲名", "exclude", "除外", "cowriter"],
       preferLarge: true,
     },
     style: {
       include: ["style", "styles", "スタイル"],
-      exclude: ["exclude", "除外", "lyrics", "lyric", "歌詞", "リリック", "title", "タイトル"],
+      exclude: ["exclude", "除外", "lyrics", "lyric", "歌詞", "リリック", "title", "タイトル", "曲名", "cowriter", "プロンプト"],
       preferLarge: false,
     },
     title: {
-      include: ["title", "タイトル"],
-      exclude: ["style", "スタイル", "lyrics", "歌詞", "リリック", "playlist", "exclude"],
+      include: ["title", "タイトル", "曲名"],
+      exclude: ["style", "スタイル", "lyrics", "歌詞", "リリック", "playlist", "exclude", "除外", "cowriter"],
       preferLarge: false,
     },
+  };
+
+  const HEADINGS = {
+    lyrics: /^(lyrics|歌詞|リリック)$/i,
+    style: /^(styles?|スタイル)$/i,
+    title: /^((song )?title|曲名|タイトル)$/i,
   };
 
   function isVisible(element) {
@@ -69,8 +77,9 @@
     return ranked.find((candidate) => candidate.matched)?.element ?? null;
   }
 
-  // セクション見出し（Lyrics / Styles）から親を辿って入力欄を探す
-  function findByHeading(headingPattern, selector) {
+  // セクション見出し（歌詞 / スタイル など）から親を辿って入力欄を探す。
+  // 同じ親に別の欄が同居することがあるため、除外語に当たる欄は候補から外す。
+  function findByHeading(headingPattern, selector, exclude = []) {
     const headers = [...document.querySelectorAll("div, span, button, h1, h2, h3")]
       .filter((element) => {
         const text = (element.textContent || "").trim();
@@ -80,28 +89,33 @@
       let node = header;
       for (let depth = 0; depth < 6 && node; depth += 1) {
         node = node.parentElement;
-        const field = node?.querySelector(selector);
-        if (field && isVisible(field)) return field;
+        if (!node) break;
+        const field = [...node.querySelectorAll(selector)].find(
+          (element) => isVisible(element)
+            && !element.disabled
+            && !exclude.some((keyword) => attrText(element).includes(keyword)),
+        );
+        if (field) return field;
       }
     }
     return null;
   }
 
-  // Simpleモードで誤ってSong Description欄へ入力しないよう、確実に特定できた場合だけ返す
+  // シンプルモードで誤ってSong Description欄へ入力しないよう、確実に特定できた場合だけ返す
   function findLyricsField() {
     return findByKeywords(FIELDS.lyrics)
-      ?? findByHeading(/^lyrics$/i, '[contenteditable="true"], textarea');
+      ?? findByHeading(HEADINGS.lyrics, '[contenteditable="true"], textarea', FIELDS.lyrics.exclude);
   }
 
-  // Sunoのスタイル欄は属性にstyleの語を持たないため、見出し「Styles」からの探索を優先する
+  // スタイル欄は属性にキーワードを持たないため、見出し「スタイル」からの探索を優先する
   function findStyleField() {
-    return findByHeading(/^styles?$/i, 'textarea, [contenteditable="true"]')
+    return findByHeading(HEADINGS.style, 'textarea, [contenteditable="true"]', FIELDS.style.exclude)
       ?? findByKeywords(FIELDS.style);
   }
 
   function findTitleField() {
     return findByKeywords(FIELDS.title)
-      ?? findByHeading(/^(song )?title$/i, "input, textarea");
+      ?? findByHeading(HEADINGS.title, "input, textarea", FIELDS.title.exclude);
   }
 
   function setNativeValue(element, value) {
@@ -144,13 +158,18 @@
     await sleep(200);
   }
 
+  // 「新しいworkspaceを作成 / Create new workspace」など別用途のボタンを掴まないよう除外する
+  const CREATE_EXACT = /^(create|生成|作成)$/i;
+  const CREATE_PARTIAL = /(create|作成|生成)/i;
+  const CREATE_EXCLUDE = /(workspace|ワークスペース|custom|カスタム|model|モデル|playlist|プレイリスト|persona|ペルソナ)/i;
+
   function findCreateButton() {
     const buttons = [...document.querySelectorAll('button, [role="button"]')]
       .filter((element) => isVisible(element) && !element.disabled && element.getAttribute("aria-disabled") !== "true");
-    return buttons.find((element) => /^(create|生成|作成)$/i.test((element.textContent || "").trim()))
+    return buttons.find((element) => CREATE_EXACT.test((element.textContent || "").trim()))
       ?? buttons.find((element) => {
-        const text = (element.textContent || "").toLowerCase();
-        return text.includes("create") && !text.includes("custom") && !text.includes("model") && !text.includes("workspace");
+        const text = (element.textContent || "").trim();
+        return text.length < 24 && CREATE_PARTIAL.test(text) && !CREATE_EXCLUDE.test(text);
       })
       ?? null;
   }
@@ -159,18 +178,18 @@
   async function processItem(item) {
     if (item.title) {
       const titleField = findTitleField();
-      if (!titleField) throw new Error("タイトル入力欄が見つかりません。「タイトルを入力する」をオフにするか、Advancedモードを確認してください。");
+      if (!titleField) throw new Error("曲名の入力欄が見つかりません。「タイトルを入力する」をオフにするか、アドバンスド（Advanced）モードを確認してください。");
       await fillField(titleField, item.title, "タイトル");
     }
 
     if (item.style) {
       const styleField = findStyleField();
-      if (!styleField) throw new Error("スタイル入力欄が見つかりません。Advanced（旧Custom）モードを開いてください。");
+      if (!styleField) throw new Error("スタイル入力欄が見つかりません。アドバンスド（Advanced）モードを開いてください。");
       await fillField(styleField, item.style, "スタイル");
     }
 
     const lyricsField = findLyricsField();
-    if (!lyricsField) throw new Error("Lyrics入力欄が見つかりません。Advanced（旧Custom）モードを開いてください。");
+    if (!lyricsField) throw new Error("歌詞の入力欄が見つかりません。アドバンスド（Advanced）モードを開いてください。");
     await fillField(lyricsField, item.lyrics ?? item.prompt ?? "", "Lyrics");
     await sleep(700);
 
