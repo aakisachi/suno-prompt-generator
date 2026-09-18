@@ -50,6 +50,15 @@
       .filter((element) => isVisible(element) && !element.disabled);
   }
 
+  function firstVisible(selectors) {
+    for (const selector of selectors) {
+      const field = [...document.querySelectorAll(selector)]
+        .find((element) => isVisible(element) && !element.disabled);
+      if (field) return field;
+    }
+    return null;
+  }
+
   function findByKeywords({ include, exclude, preferLarge }) {
     const ranked = candidates()
       .map((element) => {
@@ -103,13 +112,24 @@
 
   // シンプルモードで誤ってSong Description欄へ入力しないよう、確実に特定できた場合だけ返す
   function findLyricsField() {
-    return findByKeywords(FIELDS.lyrics)
+    // Suno v6では歌詞欄に専用のaria-labelが付いた。似た編集パネルより最優先する。
+    return firstVisible([
+      '[contenteditable="true"][aria-label="歌詞エディタ"]',
+      '[contenteditable="true"][aria-label="Lyrics editor" i]',
+      '[role="textbox"][aria-label*="歌詞"]',
+      '[role="textbox"][aria-label*="lyrics" i]',
+    ])
+      ?? findByKeywords(FIELDS.lyrics)
       ?? findByHeading(HEADINGS.lyrics, '[contenteditable="true"], textarea', FIELDS.lyrics.exclude);
   }
 
-  // スタイル欄は属性にキーワードを持たないため、見出し「スタイル」からの探索を優先する
+  // Suno v6では作成フォーム専用wrapperが付いた。同名タブを持つ別の編集パネルを除外する。
   function findStyleField() {
-    return findByHeading(HEADINGS.style, 'textarea, [contenteditable="true"]', FIELDS.style.exclude)
+    return firstVisible([
+      '[data-testid="create-form-styles-wrapper"] textarea',
+      '[data-testid="create-form-styles-wrapper"] [contenteditable="true"]',
+    ])
+      ?? findByHeading(HEADINGS.style, 'textarea, [contenteditable="true"]', FIELDS.style.exclude)
       ?? findByKeywords(FIELDS.style);
   }
 
@@ -166,7 +186,8 @@
   function findCreateButton() {
     const buttons = [...document.querySelectorAll('button, [role="button"]')]
       .filter((element) => isVisible(element) && !element.disabled && element.getAttribute("aria-disabled") !== "true");
-    return buttons.find((element) => CREATE_EXACT.test((element.textContent || "").trim()))
+    return buttons.find((element) => /^(create song|曲を作成|曲を生成)$/i.test((element.getAttribute("aria-label") || "").trim()))
+      ?? buttons.find((element) => CREATE_EXACT.test((element.textContent || "").trim()))
       ?? buttons.find((element) => {
         const text = (element.textContent || "").trim();
         return text.length < 24 && CREATE_PARTIAL.test(text) && !CREATE_EXCLUDE.test(text);

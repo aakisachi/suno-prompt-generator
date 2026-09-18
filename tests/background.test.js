@@ -57,6 +57,13 @@ test("スタイル検出はExclude Styles/スタイルを除外を候補から�
   assert.match(source, /"除外"/);
 });
 
+test("Suno v6の作成フォーム専用欄を別の編集パネルより優先する", async () => {
+  const source = await readFile(contentPath, "utf8");
+  assert.match(source, /aria-label=\"歌詞エディタ\"/);
+  assert.match(source, /aria-label=\"Lyrics editor\" i/);
+  assert.match(source, /data-testid=\"create-form-styles-wrapper\"/);
+});
+
 test("日本語UIの要素名（歌詞エディタ・スタイル・曲名）に対応する", async () => {
   const source = await readFile(contentPath, "utf8");
   assert.match(source, /lyrics\|歌詞\|リリック/);
@@ -77,6 +84,7 @@ test("作成/Createボタンはworkspace等の別ボタンを除外する", asyn
   assert.match(source, /CREATE_EXACT = \/\^\(create\|生成\|作成\)\$\/i/);
   assert.match(source, /CREATE_EXCLUDE[\s\S]{0,120}workspace/);
   assert.match(source, /CREATE_EXCLUDE[\s\S]{0,120}ワークスペース/);
+  assert.match(source, /create song\|曲を作成\|曲を生成/);
 });
 
 test("ポップアップはバックグラウンドへ開始命令を送る", async () => {
