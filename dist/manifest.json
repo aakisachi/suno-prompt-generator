@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Sunoプロンプト生成",
-  "version": "2.6.0",
+  "version": "2.6.1",
+  "minimum_chrome_version": "120",
   "description": "リリック・スタイル・タイトルをSunoへバックグラウンドで順番に入力して生成します。",
   "permissions": ["storage", "activeTab", "alarms", "scripting"],
   "host_permissions": ["https://suno.com/*", "https://app.suno.ai/*"],

@@ -3,6 +3,12 @@
   window.__sunoPromptRunnerLoaded = true;
 
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  let inputChain = Promise.resolve();
+  function checkDeadline(item) {
+    if (!item.attemptId || !Number.isFinite(item.deadline) || Date.now() >= item.deadline) {
+      throw new Error("入力の期限が切れました。生成ボタンは押しません。");
+    }
+  }
 
   const FIELD_SELECTOR = 'textarea, [contenteditable="true"], input[type="text"], input:not([type])';
 
@@ -197,38 +203,55 @@
 
   // 空文字のフィールドは触らない＝Suno画面に入力済みの値を温存する
   async function processItem(item) {
+    checkDeadline(item);
     if (item.title) {
       const titleField = findTitleField();
       if (!titleField) throw new Error("曲名の入力欄が見つかりません。「タイトルを入力する」をオフにするか、アドバンスド（Advanced）モードを確認してください。");
       await fillField(titleField, item.title, "タイトル");
+      checkDeadline(item);
     }
 
     if (item.style) {
       const styleField = findStyleField();
       if (!styleField) throw new Error("スタイル入力欄が見つかりません。アドバンスド（Advanced）モードを開いてください。");
       await fillField(styleField, item.style, "スタイル");
+      checkDeadline(item);
     }
 
     const lyricsField = findLyricsField();
     if (!lyricsField) throw new Error("歌詞の入力欄が見つかりません。アドバンスド（Advanced）モードを開いてください。");
     await fillField(lyricsField, item.lyrics ?? item.prompt ?? "", "Lyrics");
+    checkDeadline(item);
     await sleep(700);
 
     // 入力直後はCreateが無効なことがあるため、有効化されるまで待って探す
     let createButton = null;
-    for (let attempt = 0; attempt < 10 && !createButton; attempt += 1) {
+    for (let attempt = 0; attempt < 60 && !createButton; attempt += 1) {
+      checkDeadline(item);
       createButton = findCreateButton();
       if (!createButton) await sleep(500);
     }
     if (!createButton) throw new Error("有効なCreateボタンが見つかりません。リリックとスタイルが入力されているか確認してください。");
+    checkDeadline(item);
+    const permission = await chrome.runtime.sendMessage({ type: "AUTHORIZE_CLICK", attemptId: item.attemptId });
+    if (!permission?.ok) throw new Error(permission?.error || "生成が取り消されました。");
+    checkDeadline(item);
+    // Nothing asynchronous between the final deadline check and this one click.
     createButton.click();
+    try {
+      await chrome.runtime.sendMessage({ type: "CONFIRM_CLICK", attemptId: item.attemptId });
+    } catch { /* Return the click receipt as a second acknowledgement channel. */ }
+    return { ok: true, clicked: true };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type !== "PROCESS_ITEM") return false;
+    if (message.type !== "PROCESS_ITEM_V2") return false;
 
-    processItem(message.item)
-      .then(() => sendResponse({ ok: true }))
+    // A revoked old request must finish before a retry edits the same form.
+    const task = inputChain.then(() => processItem(message.item));
+    inputChain = task.catch(() => {});
+    task
+      .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   });

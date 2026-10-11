@@ -22,7 +22,7 @@ test("接続エラー時はcontent scriptを注入し直して再試行する", 
 test("バックグラウンドがアラームで次の曲を処理する", async () => {
   const source = await readFile(backgroundPath, "utf8");
   assert.match(source, /chrome\.alarms\.onAlarm\.addListener/);
-  assert.match(source, /chrome\.tabs\.sendMessage\(tabId, \{ type: "PROCESS_ITEM", item: payload \}\)/);
+  assert.match(source, /chrome\.tabs\.sendMessage\(tabId, \{ type: "PROCESS_ITEM_V2", item: payload \}\)/);
 });
 
 test("バックグラウンドがトグル設定から送信内容を組み立てる", async () => {
@@ -41,7 +41,7 @@ test("繰り返し生成: doneを進め、repeat回に達するまで待機へ�
 
 test("Suno画面側は1曲単位の処理だけを担当する", async () => {
   const source = await readFile(contentPath, "utf8");
-  assert.match(source, /message\.type !== "PROCESS_ITEM"/);
+  assert.match(source, /message\.type !== "PROCESS_ITEM_V2"/);
   assert.doesNotMatch(source, /while \(!stopRequested\)/);
 });
 

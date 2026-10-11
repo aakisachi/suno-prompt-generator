@@ -329,3 +329,6 @@ textarea::placeholder { color: var(--tertiary); }
   body { min-width: 340px; }
   .app-shell { width: 100vw; }
 }
+.recovery-panel { padding: 12px; background: #fff3d6; color: #422d00; border: 1px solid #ce9b32; border-radius: 8px; }
+.recovery-panel p { font-size: 12px; line-height: 1.5; }
+.recovery-panel button { margin: 4px; padding: 8px 10px; cursor: pointer; }

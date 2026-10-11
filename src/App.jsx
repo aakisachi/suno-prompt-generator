@@ -137,7 +137,7 @@ export function App() {
     const update = () => {
       getLocal(["sunoQueue", "sunoRunner"]).then((stored) => {
         if (stored.sunoQueue) setQueue(stored.sunoQueue.map(migrateItem));
-        if (stored.sunoRunner) setRunner(stored.sunoRunner);
+        if (stored.sunoRunner) { setRunner(stored.sunoRunner); setNotice(""); }
       });
     };
 
@@ -262,12 +262,14 @@ export function App() {
   }
 
   async function retry(id) {
+    if (runner.reviewRequired) { setNotice("先に送信結果を確認してください。"); return; }
     const nextQueue = queue.map((item) => (item.id === id ? { ...item, status: "waiting", error: "" } : item));
     await persistQueue(nextQueue);
     setNotice("再試行待ちに戻しました。");
   }
 
   async function remove(id) {
+    if (runner.running || runner.reviewRequired) { setNotice("停止して送信結果を確認してから削除してください。"); return; }
     await persistQueue(queue.filter((item) => item.id !== id));
   }
 
@@ -276,7 +278,7 @@ export function App() {
   }
 
   async function clearQueue() {
-    if (runner.running) {
+    if (runner.running || runner.reviewRequired) {
       setNotice("生成を停止してからキューを削除してください。");
       return;
     }
@@ -291,6 +293,11 @@ export function App() {
   }
 
   const previewEnabled = settings.previewTitle || settings.previewStyle || settings.previewLyrics;
+
+  async function resolveSubmission(outcome) {
+    const sent = await sendToBackground("RESOLVE_SUBMISSION", { outcome }, false);
+    if (sent) setNotice("確認結果を保存しました。Sunoの再読み込み後に再開できます。");
+  }
 
   function showHover(item, index) {
     if (!previewEnabled) return;
@@ -550,12 +557,20 @@ export function App() {
       </section>
 
       <div className="bottom-chrome">
+        {runner.reviewRequired && (
+          <div className="recovery-panel" role="alert">
+            <strong>送信結果の確認が必要です</strong>
+            <p>Sunoの生成一覧で対象曲を確認してください。選択後、Sunoを再読み込みして停止状態に戻します。</p>
+            <button type="button" onClick={() => resolveSubmission("sent")}>送信済みを確認した</button>
+            <button type="button" onClick={() => resolveSubmission("not-sent")}>未送信を確認した</button>
+          </div>
+        )}
         <div className="status-bar" role="status">
           <span className={runner.running ? "status-dot active" : "status-dot"} />
           <span>{notice || runner.message || (runner.running ? "バックグラウンドで生成中です。" : "SunoのCreate画面で開始してください。")}</span>
         </div>
         <footer className="action-footer">
-          <button className="primary-button" type="button" onClick={start} disabled={runner.running && !runner.paused}>
+          <button className="primary-button" type="button" onClick={start} disabled={runner.reviewRequired || (runner.running && !runner.paused)}>
             {runner.paused ? "再開" : "開始"}
           </button>
           <button className="stop-button" type="button" onClick={stop} disabled={!runner.running}>
